@@ -1,0 +1,584 @@
+/* ============================================================
+   AI PROPERTY TRIAGE — LUXE LIGHT
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap');
+
+/* THEME TOKENS */
+:root {
+    --bg-base: #faf8f3;
+    --surface: rgba(255, 255, 255, 0.92);
+    --surface-strong: #ffffff;
+    --border: rgba(20, 25, 40, 0.12);
+    --text-primary: #0a0e1a;
+    --text-secondary: #3a4156;
+    --text-muted: #6b7385;
+    --gold-700: #8a6915;
+    --gold-600: #b08820;
+    --gold-500: #c9a13a;
+    --gold-400: #d9b65a;
+    --gold-50: #fbf6e6;
+    --shadow-sm: 0 2px 8px rgba(20, 25, 40, 0.05);
+    --shadow-md: 0 8px 24px rgba(20, 25, 40, 0.08);
+}
+/* GLOBAL */
+html, body, [class*="css"] {
+    font-family: 'DM Sans', -apple-system, sans-serif !important;
+}
+header[data-testid="stHeader"] {
+    display: none !important;
+}
+/* BACKGROUND IMAGE */
+.stApp {
+    background: var(--bg-base);
+}
+[data-testid="stAppViewContainer"]::before {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: var(--hero-bg, none);
+    background-size: cover;
+    background-position: center;
+    opacity: 0.55;
+    z-index: 0;
+    pointer-events: none;
+}
+
+[data-testid="stAppViewContainer"]::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(180deg,
+        rgba(250, 248, 243, 0.45) 0%,
+        rgba(250, 248, 243, 0.72) 100%);
+    z-index: 0;
+    pointer-events: none;
+}
+
+.main,
+.block-container {
+    position: relative !important;
+    z-index: 10 !important;
+}
+
+.block-container {
+    max-width: 1200px !important;
+    padding-top: 0.2rem !important;
+    padding-bottom: 10rem !important;
+}
+
+/* TYPOGRAPHY */
+h1, h2, h3, h4, h5 {
+    font-family: 'Playfair Display', serif !important;
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+    letter-spacing: -0.02em !important;
+}
+
+p, .stMarkdown p, label {
+    color: var(--text-primary) !important;
+    line-height: 1.6;
+}
+
+[data-testid="stCaptionContainer"],
+[data-testid="stCaptionContainer"] p {
+    color: var(--text-primary) !important;
+    font-size: 1rem !important;
+    font-weight: 500 !important;
+    opacity: 0.85 !important;
+}
+
+/* HERO */
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 1rem;
+    background: var(--surface-strong);
+    border: 1px solid var(--gold-400);
+    border-radius: 100px;
+    color: var(--gold-700);
+    font-size: 0.7rem;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    width: fit-content;
+    margin-bottom: 0.3rem;
+    box-shadow: var(--shadow-sm);
+}
+
+.hero-badge::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    background: var(--gold-500);
+    border-radius: 50%;
+    box-shadow: 0 0 8px var(--gold-400);
+}
+
+.hero-title {
+    font-family: 'Playfair Display', serif !important;
+    font-size: clamp(1.8rem, 3.5vw, 2.8rem) !important;
+    font-weight: 600 !important;
+    line-height: 1.05 !important;
+    color: var(--text-primary) !important;
+    margin: 0 0 0.4rem 0 !important;
+}
+
+.hero-title .accent {
+    font-style: italic;
+    color: var(--gold-600);
+    font-weight: 700;
+}
+
+.hero-subtitle {
+    font-size: 1rem !important;
+    color: var(--text-primary) !important;
+    font-weight: 500 !important;
+    max-width: 620px;
+    margin-bottom: 0.3rem !important;
+}
+
+/* STATUS BADGES */
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.3rem 0.75rem;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.status-badge.online::before,
+.status-badge.offline::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+}
+
+.status-badge.online::before {
+    background: #10b981;
+    box-shadow: 0 0 6px #10b98180;
+}
+
+.status-badge.offline::before {
+    background: #ef4444;
+}
+
+/* TABS */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 0.5rem;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 0.4rem;
+}
+
+.stTabs [data-baseweb="tab"] {
+    background: transparent !important;
+    color: var(--text-primary) !important;
+    border: none !important;
+    border-radius: 10px !important;
+    padding: 0.75rem 1.5rem !important;
+    font-weight: 500 !important;
+    transition: none !important;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"]:hover {
+    box-shadow: none !important;
+    transform: none !important;
+    text-shadow: none !important;
+}
+
+.stTabs [data-baseweb="tab"]:not([aria-selected="true"]):hover {
+    background: var(--gold-50) !important;
+    color: var(--gold-700) !important;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"]:hover {
+    background: linear-gradient(135deg, var(--gold-600), var(--gold-500)) !important;
+    color: #ffffff !important;
+    filter: none !important;
+    opacity: 1 !important;
+}
+
+.stTabs [data-baseweb="tab"] * {
+    opacity: 1 !important;
+}
+
+.stTabs [data-baseweb="tab"][aria-selected="true"] {
+    background: linear-gradient(135deg, var(--gold-600), var(--gold-500)) !important;
+    color: #ffffff !important;
+}
+
+.stTabs [data-baseweb="tab-highlight"] {
+    display: none !important;
+}
+
+/* INPUTS */
+.stTextInput input,
+.stTextArea textarea {
+    background: var(--surface-strong) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    color: var(--text-primary) !important;
+    padding: 0.75rem 1rem !important;
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus,
+[data-testid="stChatInput"]:focus-within {
+    border-color: var(--gold-500) !important;
+    box-shadow: 0 0 0 1.5px rgba(201, 161, 58, 0.18) !important;
+}
+[data-testid="stChatInputSubmitButton"]:focus {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+.stTextInput label,
+.stTextArea label {
+    color: var(--text-primary) !important;
+    font-weight: 600 !important;
+}
+
+/* BUTTONS */
+.stButton button,
+.stFormSubmitButton button {
+    background: linear-gradient(135deg, var(--gold-600), var(--gold-500)) !important;
+    color: #ffffff !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 0.6rem 1.25rem !important;
+    font-weight: 600 !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+.stButton button:hover,
+.stFormSubmitButton button:hover {
+    box-shadow: 0 2px 8px rgba(201, 161, 58, 0.18) !important;
+    transform: translateY(-1px) !important;
+    filter: brightness(1.02) !important;
+}
+
+.stButton button:focus,
+.stFormSubmitButton button:focus,
+.stButton button:active,
+.stFormSubmitButton button:active {
+    outline: none !important;
+    box-shadow: 0 0 0 1px rgba(201, 161, 58, 0.15) !important;
+}
+
+.stButton button:hover *,
+.stFormSubmitButton button:hover * {
+    color: inherit !important;
+    opacity: 1 !important;
+}
+
+.stButton button[kind="secondary"] {
+    background: var(--surface-strong) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+}
+
+.stButton button[kind="secondary"]:hover {
+    background: var(--gold-50) !important;
+    color: var(--gold-700) !important;
+    border-color: var(--gold-400) !important;
+}
+
+/* ============================================================
+   FIX: Submit button — don't stretch full width
+   ============================================================ */
+.stFormSubmitButton {
+    display: flex !important;
+    justify-content: center !important;
+}
+
+.stFormSubmitButton button {
+    width: auto !important;
+    min-width: 240px !important;
+    max-width: 320px !important;
+    padding: 0.75rem 2rem !important;
+}
+
+/* CHAT */
+[data-testid="stChatMessage"] {
+    background: var(--surface-strong) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+    padding: 1rem 1.25rem !important;
+    margin-bottom: 0.65rem !important;
+}
+
+[data-testid="stChatMessage"] p,
+[data-testid="stChatMessage"] div {
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stChatInput"] {
+    background: var(--surface-strong) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 14px !important;
+}
+
+[data-testid="stChatInput"]:focus-within {
+    border-color: var(--gold-500) !important;
+    box-shadow: 0 0 0 3px rgba(201, 161, 58, 0.15) !important;
+}
+
+[data-testid="stChatInput"] textarea {
+    color: var(--text-primary) !important;
+    background: transparent !important;
+}
+
+[data-testid="stChatInput"] textarea::placeholder {
+    color: var(--text-muted) !important;
+    opacity: 0.8 !important;
+    -webkit-text-fill-color: var(--text-muted) !important;
+}
+
+.stApp [data-testid="stChatInput"] textarea::placeholder {
+    color: var(--text-muted) !important;
+}
+
+[data-testid="stChatInputSubmitButton"] {
+    background: linear-gradient(135deg, var(--gold-600), var(--gold-500)) !important;
+    border-radius: 8px !important;
+}
+
+[data-testid="stChatInputSubmitButton"] svg {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+}
+
+/* ============================================================
+   FILE UPLOADER — icon-only gold buttons
+   ============================================================ */
+
+[data-testid="stFileUploader"] section {
+    background: var(--surface) !important;
+    border: 1.5px dashed var(--gold-400) !important;
+    border-radius: 12px !important;
+    padding: 0.5rem 0.75rem !important;
+    min-height: auto !important;
+    height: auto !important;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    min-height: auto !important;
+    height: auto !important;
+    padding: 0.25rem !important;
+}
+
+[data-testid="stFileUploader"] section:hover {
+    border-color: var(--gold-600) !important;
+    background: var(--gold-50) !important;
+}
+
+[data-testid="stFileUploaderDropzoneInstructions"] {
+    display: none !important;
+}
+
+/* ============================================================
+   FILE UPLOADER BUTTON — FIXED ARROW CENTERING
+   ============================================================ */
+[data-testid="stFileUploader"] button[kind="secondary"] {
+    background: linear-gradient(135deg, var(--gold-600), var(--gold-500)) !important;
+    border: none !important;
+    border-radius: 14px !important;
+
+    width: 50px !important;
+    min-width: 50px !important;
+    max-width: 50px !important;
+    height: 40px !important;
+    position: relative !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    box-shadow: var(--shadow-sm) !important;
+}
+
+/* hide default text + old icon */
+[data-testid="stFileUploader"] button[kind="secondary"] span,
+[data-testid="stFileUploader"] button[kind="secondary"] p,
+[data-testid="stFileUploader"] button[kind="secondary"] svg {
+    display: none !important;
+}
+
+/* custom upload icon — properly centered */
+[data-testid="stFileUploader"] button[kind="secondary"]::before {
+    content: "⤓";
+    font-size: 28px;
+    color: #0a0e1a;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform: none;
+}
+
+/* hover */
+[data-testid="stFileUploader"] button[kind="secondary"]:hover {
+    transform: translateY(-1px) !important;
+    filter: brightness(1.05) !important;
+}
+
+/* Delete X button next to uploaded file */
+[data-testid="stFileUploader"] button[kind="minimal"] {
+    background: transparent !important;
+    color: var(--text-primary) !important;
+    border: none !important;
+    width: 32px !important;
+    min-width: 32px !important;
+    max-width: 32px !important;
+    height: 32px !important;
+    padding: 4px !important;
+    box-shadow: none !important;
+}
+
+[data-testid="stFileUploader"] button[kind="minimal"]:hover {
+    background: rgba(176, 136, 32, 0.15) !important;
+    transform: none !important;
+    box-shadow: none !important;
+}
+
+/* SHOW X icon on delete button */
+[data-testid="stFileUploader"] button[kind="minimal"] svg {
+    display: inline-block !important;
+    width: 18px !important;
+    height: 18px !important;
+    color: var(--text-primary) !important;
+    fill: currentColor !important;
+}
+
+[data-testid="stFileUploader"] button[kind="minimal"] p,
+[data-testid="stFileUploader"] button[kind="minimal"] span {
+    display: none !important;
+}
+
+/* ALERTS / EXPANDER */
+.stAlert {
+    background: var(--surface-strong) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stExpander"] details {
+    background: var(--surface-strong) !important;
+    border: 1px solid var(--border) !important;
+    border-radius: 12px !important;
+}
+
+[data-testid="stExpander"] summary {
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stJson"] {
+    background: var(--bg-base) !important;
+    border-radius: 8px !important;
+}
+
+/* SIDEBAR */
+[data-testid="stSidebar"] {
+    background: var(--surface-strong) !important;
+    border-right: 1px solid var(--border) !important;
+    visibility: visible !important;
+    transform: translateX(0) !important;
+    min-width: 280px !important;
+    width: 280px !important;
+    position: relative !important;
+    z-index: 999 !important;
+}
+
+[data-testid="stSidebarContent"] {
+    display: block !important;
+    visibility: visible !important;
+}
+
+[data-testid="stSidebar"] h2,
+[data-testid="stSidebar"] h3,
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] label {
+    color: var(--text-primary) !important;
+}
+
+[data-testid="stSidebar"] .stButton button {
+    background: var(--surface-strong) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border) !important;
+    box-shadow: none !important;
+    text-align: left !important;
+    justify-content: flex-start !important;
+    padding: 0.55rem 0.9rem !important;
+    font-weight: 500 !important;
+    font-size: 0.88rem !important;
+}
+
+[data-testid="stSidebar"] .stButton button:hover {
+    background: var(--gold-50) !important;
+    border-color: var(--gold-400) !important;
+    color: var(--gold-700) !important;
+    filter: none !important;
+}
+
+[data-testid="stSidebar"] .stButton button[kind="primary"] {
+    background: linear-gradient(135deg, var(--gold-600), var(--gold-500)) !important;
+    color: #ffffff !important;
+    border: none !important;
+    text-align: center !important;
+    justify-content: center !important;
+    font-weight: 600 !important;
+    font-size: 0.95rem !important;
+    padding: 0.6rem 1rem !important;
+}
+
+[data-testid="stSidebarCollapseButton"],
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"] {
+    display: none !important;
+}
+
+/* FOOTER */
+.footer-bar {
+    margin-top: 3rem;
+    padding: 0.65rem 1.25rem;
+    background: var(--surface-strong);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.footer-left {
+    font-size: 0.7rem;
+    font-weight: 600;
+    color: var(--text-muted);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.footer-right {
+    display: flex;
+    gap: 0.4rem;
+}
