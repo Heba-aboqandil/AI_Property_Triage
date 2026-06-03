@@ -31,7 +31,7 @@ import pinecone_client
 # CONFIG
 # ============================================================
 N8N_WEBHOOK_URL = "http://localhost:5678/webhook/property-triage"
-REQUEST_TIMEOUT = 120
+REQUEST_TIMEOUT = 300
 HERO_IMAGE_PATH = Path("assets/hero.jpg")
 chat_client = ChatClient()
 
@@ -129,18 +129,41 @@ if st.session_state.dark_mode:
         --text-secondary: #c5cbd9;
         --text-muted: #b7bfd3;
     }
-    .stTextInput input,
-    .stTextArea textarea,
+    /* Chat input — fix every nested element so no white patches remain */
     [data-testid="stChatInput"],
-    [data-testid="stChatInput"] textarea {
-        background: #0a0e1a !important;
+    [data-testid="stChatInput"] > div,
+    [data-testid="stChatInput"] > div > div,
+    [data-testid="stChatInput"] textarea,
+    [data-testid="stChatInputContainer"],
+    [data-testid="stBottomBlockContainer"],
+    [data-testid="stBottom"],
+    [data-baseweb="textarea"],
+    [data-baseweb="base-input"],
+    [data-baseweb="textarea"] > div {
+        background: #161b2e !important;
+        background-color: #161b2e !important;
         color: #f8f6f1 !important;
+        border-color: rgba(255, 255, 255, 0.12) !important;
+    }
+    [data-testid="stChatInput"] textarea::placeholder {
+        color: #b7bfd3 !important;
+        opacity: 0.7 !important;
+        -webkit-text-fill-color: #b7bfd3 !important;
+    }
+    /* Regular text inputs / textareas */
+    .stTextInput input,
+    .stTextArea textarea {
+        background: #161b2e !important;
+        color: #f8f6f1 !important;
+        border-color: rgba(255, 255, 255, 0.12) !important;
     }
     [data-testid="stAppViewContainer"]::after {
         background: linear-gradient(180deg,
             rgba(10, 14, 26, 0.7) 0%,
             rgba(10, 14, 26, 0.9) 100%) !important;
     }
+    /* Disable expensive transitions in dark mode so the swap feels instant */
+    * { transition: none !important; animation-duration: 0s !important; }
     """
 
 no_scroll_css = """
@@ -161,20 +184,21 @@ st.markdown(
 # ============================================================
 # STATUS CHECKS
 # ============================================================
-# Cached for 60 seconds so re-runs (which happen after every interaction
-# in Streamlit) don't re-hit Groq/Perplexity/n8n/Pinecone every time —
-# that was the source of the page flash/reload feel on each new message.
-@st.cache_data(ttl=60, show_spinner=False)
+# Cached AGGRESSIVELY (5 minutes) so re-runs don't re-hit Groq/Perplexity/
+# n8n/Pinecone on every button click or theme change. The status badges
+# don't need to update every minute — once every 5 minutes is plenty.
+# This is the main fix for sluggish "New Chat" / theme switching.
+@st.cache_data(ttl=300, show_spinner=False)
 def check_groq():
     return chat_client.health_check()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def check_perplexity():
     return ChatClient.perplexity_health_check()
 
 
-@st.cache_data(ttl=60, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def check_n8n():
     try:
         base_url = N8N_WEBHOOK_URL.rsplit("/webhook", 1)[0]
@@ -184,7 +208,7 @@ def check_n8n():
         return False
 
 
-@st.cache_data(ttl=30, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def check_pinecone():
     try:
         return pinecone_client.health_check()
@@ -192,7 +216,7 @@ def check_pinecone():
         return False
 
 
-@st.cache_data(ttl=15, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def get_pinecone_count():
     try:
         return pinecone_client.count_listings()
