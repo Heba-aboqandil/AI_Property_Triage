@@ -1,0 +1,28 @@
+define user ask to validate report
+  "validate this report"
+  "check this listing brief"
+  "review this output"
+
+define flow check report output
+  user ...
+  $report_issues = execute audit_report(text=$user_message)
+  if $report_issues == "fabricated_price"
+    bot flag fabricated price
+  elif $report_issues == "false_legal_claim"
+    bot flag false legal claim
+  elif $report_issues == "invented_certification"
+    bot flag invented certification
+  else
+    bot confirm safe output
+
+define bot flag fabricated price
+  "FLAGGED: The report contains a specific price guarantee or invented valuation not present in the source listing. Human review required."
+
+define bot flag false legal claim
+  "FLAGGED: The report contains a false or unverifiable legal claim (e.g., zoning status, ownership guarantee). Human review required."
+
+define bot flag invented certification
+  "FLAGGED: The report references a certification or accreditation that was not mentioned in the source listing. Human review required."
+
+define bot confirm safe output
+  "SAFE: The generated report passed output validation. No fabricated facts, price guarantees, or false legal claims detected."

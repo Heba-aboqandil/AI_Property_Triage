@@ -1,0 +1,48 @@
+define user ask off topic
+  "tell me a joke"
+  "what is the weather"
+  "write me a poem"
+  "help me with my homework"
+  "buy cheap meds online"
+
+define user submit spam
+  "click here for free money"
+  "winner winner chicken dinner"
+  "limited time offer act now"
+  "you have been selected"
+
+define user submit offensive content
+  "contains hate speech"
+  "contains explicit content"
+  "contains threats"
+
+define user submit property listing
+  "I have a 3 bedroom apartment"
+  "property for sale in Tel Aviv"
+  "listing description for a house"
+  "commercial office space available"
+  "villa with sea view for rent"
+
+define flow check property listing input
+  user ...
+  $is_listing = execute classify_input(text=$user_message)
+  if $is_listing == "off_topic"
+    bot refuse off topic input
+  elif $is_listing == "spam"
+    bot refuse spam input
+  elif $is_listing == "offensive"
+    bot refuse offensive input
+  else
+    bot confirm valid listing
+
+define bot refuse off topic input
+  "REJECTED: The submitted text does not appear to be a property listing. Please submit a genuine real estate listing description."
+
+define bot refuse spam input
+  "REJECTED: The submitted text has been identified as spam or promotional content and cannot be processed."
+
+define bot refuse offensive input
+  "REJECTED: The submitted text contains inappropriate or offensive content and cannot be processed."
+
+define bot confirm valid listing
+  "VALID: The submitted text has been validated as a genuine property listing."

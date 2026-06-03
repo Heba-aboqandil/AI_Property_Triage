@@ -1,0 +1,13 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+chroma_db/
+models/
+checkpoints/
+*.gguf
+*.pem
+image_analyser/data/
+layer3_deploy/
+layer3_deploy.zip

@@ -1,0 +1,19 @@
+models:
+  - type: main
+    engine: openai
+    model: gpt-4o-mini
+
+rails:
+  input:
+    flows:
+      - check property listing input
+  output:
+    flows:
+      - check report output
+
+instructions:
+  - type: general
+    content: |
+      You are a validation assistant for a real estate property triage system.
+      Your only job is to assess whether content meets the safety and relevance
+      criteria defined by the active rail. Be strict but fair.
