@@ -3,10 +3,10 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 
 from shared.schemas import ImageRequest, ImageResponse, HealthResponse
-from app.inference import predict
+from app.inference import predict, predict_from_bytes
 
 app = FastAPI(
     title="Image Analyser Service",
@@ -31,6 +31,25 @@ async def analyse(body: ImageRequest):
     """
     try:
         result = predict(str(body.image_url))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
+
+    return ImageResponse(**result)
+
+
+@app.post("/analyse/upload", response_model=ImageResponse)
+async def analyse_upload(file: UploadFile = File(...)):
+    """
+    Accepts a direct image file upload (JPEG, PNG, WEBP).
+    Runs the same ResNet-50 classifier and returns room_type,
+    condition_score (1–5), and confidence.
+    """
+    if file.content_type not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(status_code=400, detail="Unsupported file type. Use JPEG, PNG, or WEBP.")
+
+    try:
+        image_bytes = await file.read()
+        result = predict_from_bytes(image_bytes)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
 

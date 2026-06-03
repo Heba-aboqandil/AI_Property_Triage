@@ -1,14 +1,14 @@
 """
 Transfer learning training loop for the PropertyImageClassifier.
 
-Usage:
-    python training/train.py --data_dir ./data --epochs 20 --batch_size 32
+Usage (recommended — two-phase training):
+    python training/train.py --data_dir ./data --epochs 20 --unfreeze_epoch 7 --batch_size 32
 
-The script:
-  1. Loads a ResNet-50 backbone (frozen) with dual classification heads.
-  2. Trains on the combined room-type + condition loss.
-  3. Saves the best checkpoint (by validation room accuracy) to checkpoints/model.pth.
-  4. Prints a final accuracy report.
+Two-phase strategy:
+  Phase 1 (epochs 1 to unfreeze_epoch): backbone fully frozen, only heads train.
+  Phase 2 (unfreeze_epoch onward): last ResNet block (layer4) unfreezes with a
+  10x lower LR — this fine-tunes high-level visual features for real estate images
+  and significantly improves accuracy over heads-only training.
 """
 
 import argparse
@@ -27,7 +27,20 @@ from training.dataset import PropertyImageDataset
 CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "..", "checkpoints")
 
 
-def train(data_dir: str, epochs: int, batch_size: int, lr: float, device: str):
+def _unfreeze_last_block(model, backbone_lr: float, head_lr: float):
+    """Unfreeze ResNet layer4 and return a new optimizer with differential LRs."""
+    for name, param in model.backbone.named_parameters():
+        if "7" in name:  # layer4 is the 8th child (index 7) in the Sequential backbone
+            param.requires_grad = True
+
+    return torch.optim.Adam([
+        {"params": [p for n, p in model.backbone.named_parameters() if p.requires_grad], "lr": backbone_lr},
+        {"params": model.room_head.parameters(), "lr": head_lr},
+        {"params": model.condition_head.parameters(), "lr": head_lr},
+    ])
+
+
+def train(data_dir: str, epochs: int, batch_size: int, lr: float, device: str, unfreeze_epoch: int):
     os.makedirs(CHECKPOINT_DIR, exist_ok=True)
 
     train_ds = PropertyImageDataset(data_dir, split="train")
@@ -39,7 +52,6 @@ def train(data_dir: str, epochs: int, batch_size: int, lr: float, device: str):
 
     model = build_model(freeze_backbone=True).to(device)
 
-    # Only train the heads initially
     optimizer = torch.optim.Adam(
         filter(lambda p: p.requires_grad, model.parameters()), lr=lr
     )
@@ -49,8 +61,17 @@ def train(data_dir: str, epochs: int, batch_size: int, lr: float, device: str):
 
     best_val_acc = 0.0
     best_ckpt_path = os.path.join(CHECKPOINT_DIR, "model.pth")
+    phase = 1
 
     for epoch in range(1, epochs + 1):
+
+        # Switch to phase 2: unfreeze last backbone block
+        if epoch == unfreeze_epoch and unfreeze_epoch > 0:
+            print(f"\n--- Phase 2: unfreezing ResNet layer4 (backbone_lr={lr/10:.5f}) ---\n")
+            optimizer = _unfreeze_last_block(model, backbone_lr=lr / 10, head_lr=lr)
+            scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.1)
+            phase = 2
+
         # --- Train ---
         model.train()
         running_loss = 0.0
@@ -88,7 +109,7 @@ def train(data_dir: str, epochs: int, batch_size: int, lr: float, device: str):
         scheduler.step()
 
         print(
-            f"Epoch {epoch:3d}/{epochs} | Loss: {epoch_loss:.4f} | "
+            f"Epoch {epoch:3d}/{epochs} [phase {phase}] | Loss: {epoch_loss:.4f} | "
             f"Room Acc: {val_room_acc:.3f} | Cond Acc: {val_cond_acc:.3f}"
         )
 
@@ -104,11 +125,13 @@ def train(data_dir: str, epochs: int, batch_size: int, lr: float, device: str):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", default="./data")
-    parser.add_argument("--epochs", type=int, default=20)
+    parser.add_argument("--epochs", type=int, default=25)
     parser.add_argument("--batch_size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--unfreeze_epoch", type=int, default=7,
+                        help="Epoch at which to unfreeze ResNet layer4. Set to 0 to keep backbone fully frozen.")
     parser.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = parser.parse_args()
 
-    print(f"Device: {args.device}")
-    train(args.data_dir, args.epochs, args.batch_size, args.lr, args.device)
+    print(f"Device: {args.device} | Unfreeze at epoch: {args.unfreeze_epoch}")
+    train(args.data_dir, args.epochs, args.batch_size, args.lr, args.device, args.unfreeze_epoch)

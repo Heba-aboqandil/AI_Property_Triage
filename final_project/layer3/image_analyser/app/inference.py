@@ -61,16 +61,7 @@ def _fetch_image(url: str) -> Image.Image:
     return img
 
 
-def predict(image_url: str) -> dict:
-    """
-    Returns:
-        {
-            "room_type": str,
-            "condition_score": int | None,
-            "confidence": float,
-        }
-    """
-    img = _fetch_image(image_url)
+def _predict_from_pil(img: Image.Image) -> dict:
     tensor = _TRANSFORM(img).unsqueeze(0).to(DEVICE)
 
     model = load_model()
@@ -99,3 +90,13 @@ def predict(image_url: str) -> dict:
         "condition_score": condition_score,
         "confidence": round(confidence, 4),
     }
+
+
+def predict(image_url: str) -> dict:
+    img = _fetch_image(image_url)
+    return _predict_from_pil(img)
+
+
+def predict_from_bytes(image_bytes: bytes) -> dict:
+    img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+    return _predict_from_pil(img)
