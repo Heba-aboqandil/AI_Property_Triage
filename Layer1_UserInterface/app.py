@@ -31,7 +31,7 @@ import pinecone_client
 # CONFIG
 # ============================================================
 N8N_WEBHOOK_URL = "http://localhost:5678/webhook/property-triage"
-REQUEST_TIMEOUT = 300
+REQUEST_TIMEOUT = 900
 HERO_IMAGE_PATH = Path("assets/hero.jpg")
 chat_client = ChatClient()
 
