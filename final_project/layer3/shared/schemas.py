@@ -38,6 +38,25 @@ class ImageResponse(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0)
 
 
+class ImageBatchRequest(BaseModel):
+    image_urls: List[str] = Field(..., min_length=1, max_length=10, description="List of image URLs (max 10)")
+
+
+class ImageBatchResult(BaseModel):
+    image_url: str
+    room_type: Optional[str] = None
+    condition_score: Optional[int] = None
+    confidence: Optional[float] = None
+    error: Optional[str] = Field(None, description="Set if this URL failed to process")
+
+
+class ImageBatchResponse(BaseModel):
+    results: List[ImageBatchResult]
+    total: int
+    succeeded: int
+    failed: int
+
+
 # ---------------------------------------------------------------------------
 # Guardrails Service
 # ---------------------------------------------------------------------------
