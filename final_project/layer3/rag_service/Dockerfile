@@ -3,12 +3,8 @@ FROM python:3.11-slim
 WORKDIR /service
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential cmake curl git \
+    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# llama-cpp-python requires cmake to build from source (CPU-only)
-ENV CMAKE_ARGS="-DLLAMA_BLAS=OFF"
-ENV FORCE_CMAKE=1
 
 COPY rag_service/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
@@ -20,8 +16,8 @@ COPY shared /service/shared
 COPY rag_service/app /service/app
 COPY rag_service/data /service/data
 
-# Directories for mounted volumes
-RUN mkdir -p /service/chroma_db /service/models
+# Directory for ChromaDB volume
+RUN mkdir -p /service/chroma_db
 
 ENV PYTHONPATH=/service
 ENV PYTHONUNBUFFERED=1

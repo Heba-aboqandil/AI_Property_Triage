@@ -11,7 +11,6 @@
 #   OPENAI_API_KEY=sk-...
 #   GOOGLE_API_KEY=...
 #   AGENT_LLM_PROVIDER=openai   # or gemini
-#   MODEL_PATH=/service/models/llama3.gguf
 # ---------------------------------------------------------------------------
 
 networks:
@@ -44,7 +43,7 @@ services:
 
   # -------------------------------------------------------------------------
   # 2. RAG Service — port 8001
-  # Requires the GGUF model file at models/llama3.gguf and a seeded chroma_db/.
+  # Requires a seeded chroma_db/. No GGUF model needed — uses GPT-4o-mini.
   # -------------------------------------------------------------------------
   rag_service:
     build:
@@ -55,14 +54,12 @@ services:
     ports:
       - "8001:8001"
     environment:
-      - MODEL_PATH=/service/models/llama3.gguf
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - CHROMA_PATH=/service/chroma_db
       - EMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
-      - LLAMA_N_CTX=2048
-      - LLAMA_N_THREADS=4
       - LLAMA_MAX_TOKENS=512
+      - LLAMA_TEMPERATURE=0.1
     volumes:
-      - ./rag_service/models:/service/models:ro
       - ./rag_service/chroma_db:/service/chroma_db
     networks:
       - layer3_net
