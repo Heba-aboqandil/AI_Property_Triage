@@ -189,7 +189,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "=={{ JSON.stringify({\n  description: $('Node 1 — Webhook Trigger').item.json.body.description || ''\n}) }}"
+        "jsonBody": "={{ JSON.stringify({\n  description: $('Node 1 — Webhook Trigger').item.json.body.description || ''\n}) }}"
       },
       "id": "0bdc710c-9a63-4bac-a877-63b77424d1a4",
       "name": "rag_query",
@@ -1002,7 +1002,7 @@
     "executionOrder": "v1",
     "binaryMode": "separate"
   },
-  "versionId": "1b4aaa6e-3131-43ef-a215-c7923631c855",
+  "versionId": "a51ae82c-0efc-43e9-ad50-168e9105421e",
   "meta": {
     "instanceId": "949a8c9f72924daac2c0cc1c2131d39e65c67a2568cb78add0997fbfff7aacd1"
   },
