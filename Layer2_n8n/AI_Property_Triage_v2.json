@@ -1,0 +1,1011 @@
+{
+  "name": "AI_Property_Triage_v2",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "property-triage",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "9b093b69-e549-4553-9078-01a0dd3ba5e6",
+      "name": "Node 1 — Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        32,
+        112
+      ],
+      "webhookId": "property-triage-webhook"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://54.84.168.9:8003/check/input",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ text: $json.body.description }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "0b0f002b-34d2-42fa-9344-e9630dac768f",
+      "name": "Node 2 — Guardrails Input Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        192,
+        112
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-input-passed",
+              "leftValue": "={{ $json.passed !== false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "38565b43-98ee-44c0-9ca7-77628cd33567",
+      "name": "Node 3 — Input Pass/Reject",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        352,
+        112
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, rejected: true, stage: 'input_guardrails', reason: $('Node 2 — Guardrails Input Check').item.json.reason || 'Submission did not pass input validation.', report: null }) }}",
+        "options": {
+          "responseCode": 422
+        }
+      },
+      "id": "0868fa0e-d125-4238-b6cf-d2ee99955274",
+      "name": "Node 3b — Reject Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        368,
+        336
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "id": "eb2d59ad-dc7a-4f24-b4d4-867489d2a2a6",
+      "name": "Gemini Chat Model — Extractor",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        640,
+        272
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "b69PbnMDF6pTXYQp",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ `You extract structured fields from a real-estate listing description. Reply with ONE JSON object only. No markdown, no code fences, no commentary.\n\nSchema (use exactly these keys and types):\n{\n  \"property_type\": \"apartment | house | villa | office | retail | industrial | other\",\n  \"location\": \"city or neighbourhood as written in the listing\",\n  \"price_ils\": number | null,\n  \"num_rooms\": number | null,\n  \"size_sqm\": number | null,\n  \"key_features\": [\"up to 5 short strings\"],\n  \"certifications\": \"energy rating or similar, empty string if none\"\n}\n\nRules:\n- Extract only facts present in the text. Use null / empty string / [] for missing fields.\n- property_type must be one of the allowed values; if uncertain, use \"other\".\n- Never invent numbers or facts.\n\nListing description:\n${$('Node 1 — Webhook Trigger').item.json.body.description || ''}\n\nRespond with JSON only.` }}"
+      },
+      "id": "2ed171fb-95df-44a4-8094-62e998282a3d",
+      "name": "Node 4 — Information Extractor",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        544,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst raw =\n  typeof item.text === 'string'\n    ? item.text\n    : typeof item.output === 'string'\n      ? item.output\n      : '';\n\n// Strip markdown code fences if the LLM wrapped its JSON in them\nlet stripped = String(raw)\n  .replace(/^```(?:json)?\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\nlet data = null;\ntry {\n  data = JSON.parse(stripped);\n} catch (e) {\n  // Last-ditch: find the first {...} block\n  const m = stripped.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    try { data = JSON.parse(m[0]); } catch (e2) {}\n  }\n}\n\nfunction asArray(v) {\n  if (Array.isArray(v)) return v.slice(0, 5).map(String);\n  if (typeof v === 'string' && v.trim()) {\n    return v.split(/[,\\n]/).map(s => s.trim()).filter(Boolean).slice(0, 5);\n  }\n  return [];\n}\n\nfunction asNumberOrNull(v) {\n  if (typeof v === 'number' && isFinite(v)) return v;\n  if (v == null || v === '') return null;\n  const n = Number(String(v).replace(/[,_\\s]/g, ''));\n  return isFinite(n) ? n : null;\n}\n\nconst fallback = {\n  property_type: 'other',\n  location: '',\n  price_ils: null,\n  num_rooms: null,\n  size_sqm: null,\n  key_features: [],\n  certifications: '',\n};\n\nif (!data || typeof data !== 'object') {\n  return [{ json: { output: fallback, extract_error: true, raw_preview: String(raw).slice(0, 500) } }];\n}\n\nconst allowed = ['apartment','house','villa','office','retail','industrial','other'];\nconst pt = String(data.property_type || 'other').toLowerCase();\n\nconst output = {\n  property_type: allowed.includes(pt) ? pt : 'other',\n  location: data.location ? String(data.location) : '',\n  price_ils: asNumberOrNull(data.price_ils),\n  num_rooms: asNumberOrNull(data.num_rooms),\n  size_sqm: asNumberOrNull(data.size_sqm),\n  key_features: asArray(data.key_features),\n  certifications: data.certifications != null ? String(data.certifications) : '',\n};\n\nreturn [{ json: { output } }];\n"
+      },
+      "id": "3ea1a4e0-b5ac-43b7-8f19-5e66e16ee1c5",
+      "name": "Node 4b — Parse Extracted JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        800,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "id": "559a7696-b7b4-420b-8f52-8a5393303716",
+      "name": "Gemini Chat Model — Agent",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        976,
+        368
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "b69PbnMDF6pTXYQp",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "toolDescription": "Searches the RAG knowledge base for similar past property listings.\nCall this tool exactly once.\nThis tool automatically sends the property description from the webhook body.\nDo not provide parameters to this tool.\nDo not send image URLs to this tool.",
+        "method": "POST",
+        "url": "http://54.84.168.9:8001/query",
+        "sendHeaders": true,
+        "parametersHeaders": {
+          "values": [
+            {
+              "name": "Content-Type",
+              "valueProvider": "fieldValue",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=={{ JSON.stringify({\n  description: $('Node 1 — Webhook Trigger').item.json.body.description || ''\n}) }}"
+      },
+      "id": "0bdc710c-9a63-4bac-a877-63b77424d1a4",
+      "name": "rag_query",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1040,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Analyses property images by URL using the batch endpoint.\nCall this tool exactly once when image_urls is not empty.\nThe tool automatically uses the exact image_urls from the webhook body.\nReturns results with image_url, room_type, condition_score, confidence, and error.",
+        "method": "POST",
+        "url": "http://54.84.168.9:8002/analyse/batch",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  image_urls: (() => {\n    const raw = $('Node 1 — Webhook Trigger').item.json.body.image_urls;\n\n    if (Array.isArray(raw)) {\n      return raw\n        .map(String)\n        .map(s => s.trim())\n        .filter(Boolean)\n        .slice(0, 10);\n    }\n\n    return String(raw || '')\n      .split(/[\\n,]+/)\n      .map(s => s.trim())\n      .filter(Boolean)\n      .slice(0, 10);\n  })()\n}) }}"
+      },
+      "id": "651a9483-9a6d-4ed8-ab1c-6d0862b070e5",
+      "name": "analyse_images",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1136,
+        304
+      ]
+    },
+    {
+      "parameters": {
+        "toolDescription": "Runs a multi-step LangGraph reasoning agent for COMPLEX analysis questions that need planning across RAG retrieval and image analysis (e.g. renovation cost estimates, which rooms need attention to reach condition 5). Pass the listing description and image_urls. Returns answer, tools_used, and reasoning_steps. Use only when rag_query and analyse_images alone are not enough.",
+        "method": "POST",
+        "url": "http://54.84.168.9:8004/agent/run",
+        "sendHeaders": true,
+        "parametersHeaders": {
+          "values": [
+            {
+              "name": "Content-Type",
+              "valueProvider": "fieldValue",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  query: \"Perform deeper multi-step property reasoning only if needed.\",\n  description: $('Node 1 — Webhook Trigger').item.json.body.description || '',\n  image_urls: $('Node 1 — Webhook Trigger').item.json.body.image_urls || [],\n  precomputed_image_scores: $('Node 1 — Webhook Trigger').item.json.body.precomputed_image_scores || []\n}) }}"
+      },
+      "id": "f9ef7346-9bb9-4659-892d-fd1e6eff79a8",
+      "name": "langgraph_agent",
+      "type": "@n8n/n8n-nodes-langchain.toolHttpRequest",
+      "typeVersion": 1.1,
+      "position": [
+        1248,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ `Listing description:\n${$('Node 1 — Webhook Trigger').item.json.body.description || ''}\n\nExtracted fields:\n${JSON.stringify($('Node 4b — Parse Extracted JSON').item.json.output)}\n\nImage URLs (MUST be analysed):\n${JSON.stringify($('Node 1 — Webhook Trigger').item.json.body.image_urls || [])}\n\nUploaded image scores already analysed:\n${JSON.stringify($('Node 1 — Webhook Trigger').item.json.body.precomputed_image_scores || [])}\n\nImportant image analysis instructions:\n- If the Image URLs array is not empty, you MUST call analyse_images exactly once.\n- Send all image URLs together in one batch call.\n- Use the exact URLs from the Image URLs array above.\n- Do not change, remove, summarize, or invent URLs.\n- The analyse_images tool may return results using the field name \"image_url\".\n- The final JSON requires the field name \"url\".\n- Therefore, when creating image_scores, map:\n  result.image_url -> url\n  result.room_type -> room_type\n  result.condition_score -> condition_score\n  result.confidence -> confidence\n\nFinal image_scores format must be:\n[\n  {\n    \"url\": \"copied from result.image_url\",\n    \"room_type\": \"copied from result.room_type\",\n    \"condition_score\": copied from result.condition_score,\n    \"confidence\": copied from result.confidence\n  }\n]\n\nDo not output \"image_url\" inside image_scores.\n` }}",
+        "options": {
+          "systemMessage": "You are a senior property analyst for an AI real-estate triage platform.\n\n# Your role\nYou enrich a property listing by calling the tools available to you, then return a single JSON object that summarises the listing and decides how it should be routed.\n\n# Tools (call in this priority order)\n1. **rag_query** — ALWAYS call this once with the full listing description. It returns similar past listings from the agency knowledge base.\n2. analyse_images — CONDITIONAL REQUIRED TOOL.\n\nIf the webhook body contains one or more image URLs, you MUST call analyse_images exactly once before generating the final JSON.\n\nUse the exact image URLs shown in the \"Image URLs (MUST be analysed)\" section of the user message.\nDo not rewrite them.\nDo not summarize them.\nDo not remove them.\nDo not invent image URLs.\n\nCall analyse_images with all image URLs together in one batch call.\n\nThe analyse_images tool returns a batch response similar to:\n{\n  \"results\": [\n    {\n      \"image_url\": string,\n      \"room_type\": string,\n      \"condition_score\": number,\n      \"confidence\": number,\n      \"error\": string | null\n    }\n  ],\n  \"total\": number,\n  \"succeeded\": number,\n  \"failed\": number\n}\n\nFor the final JSON, map every successful result into image_scores like this:\n{\n  \"url\": result.image_url,\n  \"room_type\": result.room_type,\n  \"condition_score\": result.condition_score,\n  \"confidence\": result.confidence\n}\n\nIf a result has an error, do not include it in image_scores, but mention the failed URL in enrichment_notes.\n\nIf \"Uploaded image scores already analysed\" is not empty, copy those objects directly into final image_scores.\n\nIf precomputed_image_scores exists, do not discard it.\n\nOnly call analyse_images when image_urls is not empty.\n\nIf image_urls is empty but precomputed_image_scores is not empty, do not call analyse_images. Use precomputed_image_scores as the image_scores field.\n\n\nIf image_urls is not empty and image_scores is empty, explain the exact reason in enrichment_notes.\n3. **langgraph_agent** — Call ONLY for genuinely complex multi-step questions (e.g. renovation planning to reach condition 5). Skip this for straightforward listings.\n\n# Tool calling rules\n- Call each tool AT MOST ONCE. Do not retry on failure — note the failure in `enrichment_notes` and continue.\n- If a tool returns an error or empty payload, do NOT invent its data. Leave the corresponding field empty and explain in `enrichment_notes`.\n- Do not call analyse_images when image_urls is [].\n\n# Routing decision\n- `residential`  ⇐  property_type ∈ {apartment, house, villa}\n- `commercial`   ⇐  property_type ∈ {office, retail, industrial}\n- If property_type is \"other\" or unclear, choose the closer category and explain in `enrichment_notes`.\n\n# Image analysis response mapping\n\nThe analyse_images tool returns image analysis results using this field name:\n\"image_url\"\n\nBut the final JSON schema requires this field name:\n\"url\"\n\nTherefore, when building image_scores, always map the image analysis results like this:\n\nimage_scores = results.map(result => ({\n  \"url\": result.image_url,\n  \"room_type\": result.room_type,\n  \"condition_score\": result.condition_score,\n  \"confidence\": result.confidence\n}))\n\nDo NOT output \"image_url\" inside image_scores.\nThe final image_scores objects must use \"url\", not \"image_url\".\n\n# Output format (STRICT)\nAfter your tool calls complete, return ONE JSON object with EXACTLY these keys:\n\n{\n  \"property_type\":     string,\n  \"routing_decision\":  \"residential\" | \"commercial\",\n  \"location\":          string,\n  \"price_ils\":         number | null,\n  \"num_rooms\":         number | null,\n  \"size_sqm\":          number | null,\n  \"key_features\":      [string],\n  \"image_scores\":      [{\"url\": string, \"room_type\": string, \"condition_score\": number, \"confidence\": number}],\n  \"similar_listings\":  [string | object],\n  \"rag_insight\":       string,\n  \"enrichment_notes\":  string,\n  \"confidence\":        number\n}\n\n# Hard constraints\n- Output JSON ONLY. No markdown, no code fences, no commentary before or after.\n- Do NOT fabricate prices, similar listings, or image scores.\n- Empty image_scores is acceptable ONLY when image_urls is empty or when analyse_images failed.\n If it failed, explain why in enrichment_notes.- Echo the location and price from the Extracted fields unless a tool returned a clear correction.",
+          "maxIterations": 8,
+          "returnIntermediateSteps": false
+        }
+      },
+      "id": "44af5e6f-8cf6-4109-9930-5647f6115a6b",
+      "name": "Node 5 — AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        976,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-3.1-flash-lite",
+        "options": {}
+      },
+      "id": "e14502dc-4766-416f-8cc8-d7759a8729e4",
+      "name": "Gemini Chat Model — Report",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1488,
+        272
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "b69PbnMDF6pTXYQp",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ `You are a final-report normaliser for a property triage pipeline. The previous agent produced a JSON object enriching a listing. Your job is to clean it for downstream consumption.\n\nSTRICT RULES:\n- Output ONE JSON object only. No markdown, no code fences, no commentary.\n- Keep the SAME factual values (location, price_ils, num_rooms, size_sqm, key_features, image_scores, similar_listings, rag_insight, routing_decision, confidence).\n- You MAY: fix obvious typos in property_type capitalisation, normalise empty fields to [] / null / \"\", lightly improve enrichment_notes phrasing.\n- You MAY NOT: invent prices, swap residential/commercial, fill empty arrays with plausible fake data, change location.\n- If similar_listings contains RAG objects ({id, title, description, similarity_score}), KEEP them as objects — do not stringify them.\n- If the agent output has parse_error or missing fields, return placeholders: property_type \"unknown\", routing_decision \"residential\", location \"unknown\", null numerics, [] arrays, confidence 0.\n\nOutput schema:\n{\n  \"property_type\": string,\n  \"routing_decision\": \"residential\" | \"commercial\",\n  \"location\": string,\n  \"price_ils\": number | null,\n  \"num_rooms\": number | null,\n  \"size_sqm\": number | null,\n  \"key_features\": [string],\n  \"image_scores\": [object],\n  \"similar_listings\": [string | object],\n  \"rag_insight\": string,\n  \"enrichment_notes\": string,\n  \"confidence\": number,\n  \"markdown_summary\": string\n}\n\nAdd a NEW field markdown_summary: a 4-6 line markdown brief suitable to show to a listing agent. Use the schema fields only — no invented facts.\n\nAgent output to clean:\n${JSON.stringify($json.output)}` }}"
+      },
+      "id": "ee436a9e-443a-4c07-852e-df850fd56bfe",
+      "name": "Node 6 — Final Report LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.5,
+      "position": [
+        1408,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\nconst raw =\n  typeof item.text === 'string'\n    ? item.text\n    : typeof item.output === 'string'\n      ? item.output\n      : '';\n\nlet stripped = String(raw)\n  .replace(/^```(?:json)?\\s*/i, '')\n  .replace(/```\\s*$/i, '')\n  .trim();\n\nlet data = null;\ntry {\n  data = JSON.parse(stripped);\n} catch (e) {\n  const m = stripped.match(/\\{[\\s\\S]*\\}/);\n  if (m) {\n    try { data = JSON.parse(m[0]); } catch (e2) {}\n  }\n}\n\n// Some LLMs wrap the report inside { report: {...} } — unwrap it\nif (data && data.report && typeof data.report === 'object' && !Array.isArray(data.report)) {\n  data = data.report;\n}\n\nconst fallback = {\n  property_type: 'unknown',\n  routing_decision: 'residential',\n  location: 'unknown',\n  price_ils: null,\n  num_rooms: null,\n  size_sqm: null,\n  key_features: [],\n  image_scores: [],\n  similar_listings: [],\n  rag_insight: '',\n  enrichment_notes: 'Could not parse final report JSON from the LLM chain output.',\n  confidence: 0,\n  markdown_summary: '',\n  parse_error: true,\n};\n\nif (!data || typeof data !== 'object') {\n  return [{ json: { ...fallback, raw_preview: typeof raw === 'string' ? raw.slice(0, 800) : '' } }];\n}\n\n// Normalise routing_decision\nconst rd = String(data.routing_decision || '').toLowerCase().trim();\ndata.routing_decision = (rd === 'residential' || rd === 'commercial') ? rd : 'residential';\n\nreturn [{ json: data }];\n"
+      },
+      "id": "71c3f9af-f2cd-4a69-b67e-d0315cdea71e",
+      "name": "Node 6b — Parse Report JSON",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1664,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://54.84.168.9:8003/check/output",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ report: $json, original_listing: $('Node 1 — Webhook Trigger').item.json.body.description }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "c295e584-fae8-4b2f-b225-e92f7526fc2a",
+      "name": "Node 7 — Guardrails Output Check",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1872,
+        96
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cond-output-passed",
+              "leftValue": "={{ $json.passed !== false }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f97331be-eb62-4724-9bb4-a4826c89051e",
+      "name": "Node 7b — Output Pass / Flag",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2048,
+        96
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ String($env.HUMAN_REVIEW_URL || 'http://127.0.0.1:9090').trim().replace(/\\/+$/, '') + '/review' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ report: $('Node 6b — Parse Report JSON').item.json, flag_reason: $('Node 7 — Guardrails Output Check').item.json.reason || 'output_guardrails_failed', agent_name: $('Node 1 — Webhook Trigger').item.json.body.agent_name, submission_id: $('Node 1 — Webhook Trigger').item.json.body.submission_id }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "a12bbf2a-c097-4b03-bd29-03da28e21437",
+      "name": "Node 7c — Human Review Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2048,
+        304
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: false, human_review_required: true, stage: 'output_guardrails', flag_reason: $('Node 7 — Guardrails Output Check').item.json.reason || null, message: 'The generated report was flagged by the output guardrails and has been queued for human review.', report: $('Node 6b — Parse Report JSON').item.json }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "876f38ff-b824-4e0c-a62a-957e79b4e6e2",
+      "name": "Node 7d — Respond Human Review",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2048,
+        496
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cond-residential",
+                    "leftValue": "={{ $('Node 6b — Parse Report JSON').item.json.routing_decision }}",
+                    "rightValue": "residential",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "residential"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "cond-commercial",
+                    "leftValue": "={{ $('Node 6b — Parse Report JSON').item.json.routing_decision }}",
+                    "rightValue": "commercial",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "commercial"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "id": "988727af-6ebd-4ee4-8b7b-aaa992a38200",
+      "name": "Node 8 — Property Type Router",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        2272,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ String($env.RESIDENTIAL_TEAM_URL || 'http://127.0.0.1:9091').trim().replace(/\\/+$/, '') + '/notify' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ team: 'residential', report: $('Node 6b — Parse Report JSON').item.json, agent_name: $('Node 1 — Webhook Trigger').item.json.body.agent_name, submission_id: $('Node 1 — Webhook Trigger').item.json.body.submission_id }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "f3c71269-1b41-46c0-944e-84f1b78cee51",
+      "name": "Node 8a — Notify Residential Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2480,
+        64
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, channel: 'residential', stage: 'completed', report: $('Node 6b — Parse Report JSON').item.json }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "446db452-0cf1-4dbd-9bd1-88f5d989ab53",
+      "name": "Node 8a-resp — Residential Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2656,
+        64
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ String($env.COMMERCIAL_TEAM_URL || 'http://127.0.0.1:9092').trim().replace(/\\/+$/, '') + '/notify' }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ team: 'commercial', report: $('Node 6b — Parse Report JSON').item.json, agent_name: $('Node 1 — Webhook Trigger').item.json.body.agent_name, submission_id: $('Node 1 — Webhook Trigger').item.json.body.submission_id }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "id": "8409dd40-82e0-4b4d-881c-2639b85a7757",
+      "name": "Node 8b — Notify Commercial Team",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2496,
+        224
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, channel: 'commercial', stage: 'completed', report: $('Node 6b — Parse Report JSON').item.json }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "89f4ac1a-a9b9-41f5-a72c-07ae0b037937",
+      "name": "Node 8b-resp — Commercial Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2656,
+        224
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ success: true, channel: 'unknown', stage: 'completed_no_routing', warning: 'routing_decision was neither residential nor commercial; no team was notified.', report: $('Node 6b — Parse Report JSON').item.json }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "5d162899-d005-472b-8582-50d351286658",
+      "name": "Node 8c — Fallback Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        2576,
+        416
+      ]
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 Request Intake & Validation\n",
+        "height": 496,
+        "width": 512,
+        "color": "#E8CFE2"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        0,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "18f61e5a-8ccd-4ec8-a3ed-6a6ec5fe1a05",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 Information Extraction",
+        "height": 416,
+        "width": 384,
+        "color": 3
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        544,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "013b0f66-f59c-4236-ad2e-e81617895332",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 AI Analysis & Enrichment",
+        "height": 544,
+        "width": 416,
+        "color": "#DEAFB9"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        944,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "acbb2d83-733d-4bf6-9daf-733f474be7f3",
+      "name": "Sticky Note2"
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 Report Generation",
+        "height": 416,
+        "width": 416,
+        "color": "#DA9A9A"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1392,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "2a75a5d3-d079-46ad-8b4e-25ab9bc26dbe",
+      "name": "Sticky Note3"
+    },
+    {
+      "parameters": {
+        "content": "## 🟪  Output Safety & Human Review",
+        "height": 640,
+        "width": 384,
+        "color": "#F3DDE9"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        1824,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "8bd04a0e-0fc2-4e5a-8efd-b83333dd5eec",
+      "name": "Sticky Note4"
+    },
+    {
+      "parameters": {
+        "content": "## 🟪 Property Routing & Notifications",
+        "height": 560,
+        "width": 544,
+        "color": 6
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        2240,
+        0
+      ],
+      "typeVersion": 1,
+      "id": "5d4ae0ea-3eac-48c4-97c7-7c9cb44fcbe9",
+      "name": "Sticky Note5"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nlet output = item.output;\n\n// If AI Agent output is a JSON string, parse it\nif (typeof output === 'string') {\n  let cleaned = output\n    .replace(/^```(?:json)?\\s*/i, '')\n    .replace(/```\\s*$/i, '')\n    .trim();\n\n  try {\n    output = JSON.parse(cleaned);\n  } catch (e) {\n    return [{\n      json: {\n        output: item.output,\n        normalize_error: true,\n        error: 'Could not parse AI Agent output as JSON'\n      }\n    }];\n  }\n}\n\n// Normalize image_scores\nif (output && Array.isArray(output.image_scores)) {\n  output.image_scores = output.image_scores.map(score => ({\n    url: score.url || score.image_url || '',\n    room_type: score.room_type || '',\n    condition_score: score.condition_score ?? null,\n    confidence: score.confidence ?? null\n  }));\n}\n\nreturn [{\n  json: {\n    output\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1232,
+        96
+      ],
+      "id": "63dc532d-065e-4d3f-940d-2c08cd73c83d",
+      "name": "Node 5b — Normalize Image Scores"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Node 1 — Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Node 2 — Guardrails Input Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 2 — Guardrails Input Check": {
+      "main": [
+        [
+          {
+            "node": "Node 3 — Input Pass/Reject",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 3 — Input Pass/Reject": {
+      "main": [
+        [
+          {
+            "node": "Node 4 — Information Extractor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Node 3b — Reject Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model — Extractor": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Node 4 — Information Extractor",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 4 — Information Extractor": {
+      "main": [
+        [
+          {
+            "node": "Node 4b — Parse Extracted JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 4b — Parse Extracted JSON": {
+      "main": [
+        [
+          {
+            "node": "Node 5 — AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model — Agent": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Node 5 — AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rag_query": {
+      "ai_tool": [
+        [
+          {
+            "node": "Node 5 — AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "analyse_images": {
+      "ai_tool": [
+        [
+          {
+            "node": "Node 5 — AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "langgraph_agent": {
+      "ai_tool": [
+        [
+          {
+            "node": "Node 5 — AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 5 — AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Node 5b — Normalize Image Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Chat Model — Report": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Node 6 — Final Report LLM Chain",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 6 — Final Report LLM Chain": {
+      "main": [
+        [
+          {
+            "node": "Node 6b — Parse Report JSON",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 6b — Parse Report JSON": {
+      "main": [
+        [
+          {
+            "node": "Node 7 — Guardrails Output Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 7 — Guardrails Output Check": {
+      "main": [
+        [
+          {
+            "node": "Node 7b — Output Pass / Flag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 7b — Output Pass / Flag": {
+      "main": [
+        [
+          {
+            "node": "Node 8 — Property Type Router",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Node 7c — Human Review Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 7c — Human Review Webhook": {
+      "main": [
+        [
+          {
+            "node": "Node 7d — Respond Human Review",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 8 — Property Type Router": {
+      "main": [
+        [
+          {
+            "node": "Node 8a — Notify Residential Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Node 8b — Notify Commercial Team",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Node 8c — Fallback Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 8a — Notify Residential Team": {
+      "main": [
+        [
+          {
+            "node": "Node 8a-resp — Residential Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 8b — Notify Commercial Team": {
+      "main": [
+        [
+          {
+            "node": "Node 8b-resp — Commercial Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Node 5b — Normalize Image Scores": {
+      "main": [
+        [
+          {
+            "node": "Node 6 — Final Report LLM Chain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "1b4aaa6e-3131-43ef-a215-c7923631c855",
+  "meta": {
+    "instanceId": "949a8c9f72924daac2c0cc1c2131d39e65c67a2568cb78add0997fbfff7aacd1"
+  },
+  "id": "kxhUCscWf1sw51xU",
+  "tags": []
+}

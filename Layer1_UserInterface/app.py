@@ -31,6 +31,7 @@ import pinecone_client
 # CONFIG
 # ============================================================
 N8N_WEBHOOK_URL = "http://localhost:5678/webhook/property-triage"
+IMAGE_ANALYSER_UPLOAD_URL = "http://54.84.168.9:8002/analyse/upload"
 REQUEST_TIMEOUT = 900
 HERO_IMAGE_PATH = Path("assets/hero.jpg")
 chat_client = ChatClient()
@@ -737,6 +738,7 @@ with tab_form:
         )
         st.markdown("##### Property Images")
         img_tab1, img_tab2 = st.tabs(["Upload Files", "Paste URLs"])
+
         with img_tab1:
             uploaded_files = st.file_uploader(
                 "Upload photos",
@@ -744,6 +746,7 @@ with tab_form:
                 accept_multiple_files=True,
                 label_visibility="collapsed",
             )
+
         with img_tab2:
             image_urls_text = st.text_area(
                 "URLs",
@@ -765,15 +768,53 @@ with tab_form:
 
         image_urls_list = []
         images_b64_list = []
+        uploaded_image_scores = []
+
         if uploaded_files:
             for f in uploaded_files:
-                file_bytes = f.read()
+                file_bytes = f.getvalue()
+
+                # Keep a light record of the uploaded image in the submitted payload
                 b64_string = base64.b64encode(file_bytes).decode("utf-8")
                 images_b64_list.append({
                     "filename": f.name,
                     "mime_type": f.type,
                     "data_base64": b64_string,
                 })
+
+                # Analyse uploaded file directly using Layer 3 image analyser
+                try:
+                    files = {
+                        "file": (
+                            f.name,
+                            file_bytes,
+                            f.type or "application/octet-stream",
+                        )
+                    }
+
+                    img_response = requests.post(
+                        IMAGE_ANALYSER_UPLOAD_URL,
+                        files=files,
+                        timeout=120,
+                    )
+
+                    img_response.raise_for_status()
+                    img_data = img_response.json()
+
+                    # Some APIs return the result directly, others wrap it in "result"
+                    if isinstance(img_data, dict) and isinstance(img_data.get("result"), dict):
+                        img_data = img_data["result"]
+
+                    uploaded_image_scores.append({
+                        "url": f"uploaded_file:{f.name}",
+                        "room_type": img_data.get("room_type", "unknown"),
+                        "condition_score": img_data.get("condition_score"),
+                        "confidence": img_data.get("confidence"),
+                    })
+
+                except Exception as e:
+                    errors.append(f"Image upload analysis failed for {f.name}: {e}")
+
         if image_urls_text and image_urls_text.strip():
             raw_urls = re.split(r'[,\n]+', image_urls_text)
             image_urls_list = [u.strip() for u in raw_urls if u.strip()]
@@ -791,11 +832,14 @@ with tab_form:
                 "description": property_description.strip(),
                 "image_urls": image_urls_list,
                 "images_base64": images_b64_list,
+                "precomputed_image_scores": uploaded_image_scores,
             }
 
             with st.expander("Submitted payload"):
                 preview = dict(payload)
                 if preview["images_base64"]:
+                    if preview.get("precomputed_image_scores"):
+                        preview["precomputed_image_scores"] = preview["precomputed_image_scores"]
                     preview["images_base64"] = [
                         {
                             "filename": img["filename"],
