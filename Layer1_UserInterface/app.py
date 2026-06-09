@@ -20,7 +20,7 @@ import base64
 import re
 from pathlib import Path
 from datetime import datetime
-
+import rag_client
 import db
 from chat_client import ChatClient
 import router
@@ -653,6 +653,8 @@ with tab_chat:
                     backend_label = "🌐 *Searching the web via Perplexity Sonar…*"
                 elif decision == "pinecone":
                     backend_label = "📦 *Looking up past listings in vector store…*"
+                elif decision == "rag":
+                    backend_label = "📊 *Comparing with market database (ChromaDB)…*"
                 else:
                     backend_label = "💬 *Answering from local knowledge (Groq Llama 3.1)…*"
                 badge = st.empty()
@@ -675,13 +677,156 @@ with tab_chat:
                     if decision == "perplexity":
                         # Stream from Perplexity Sonar
                         for content in sonar_client.stream_sonar(
-                            user_message=prompt,
-                            history=history,
-                            listing_context=listing_ctx,
+                                user_message=prompt,
+                                history=history,
+                                listing_context=listing_ctx,
                         ):
                             full_response += content
                             placeholder.markdown(full_response + "▌")
                         placeholder.markdown(full_response)
+
+                    elif decision == "rag":
+                        # Query ChromaDB via EC2 RAG service, then ground Groq's answer
+                        # in the returned similar listings.
+                        query_text = prompt
+
+                        if listing_ctx:
+                            query_text = f"""
+                        User question:
+                        {prompt}
+
+                        Most recent submitted listing context:
+                        {listing_ctx}
+                        """
+
+                        if len(query_text.strip()) < 10:
+                            full_response = (
+                                "⚠️ Please provide more details (at least 10 characters) "
+                                "about the property you want to compare with the market."
+                            )
+                            placeholder.markdown(full_response)
+                        else:
+                            try:
+                                rag_result = rag_client.query_rag(query_text)
+                                similar = (
+                                        rag_result.get("similar_listings")
+                                        or rag_result.get("results")
+                                        or rag_result.get("matches")
+                                        or rag_result.get("documents")
+                                        or rag_result.get("listings")
+                                        or []
+                                )
+                                with st.expander("Debug RAG response"):
+                                    st.json(rag_result)
+                                insight = rag_result.get("insight", "") or rag_result.get("rag_insight", "")
+
+                                if not similar and not insight:
+                                    rag_context = (
+                                        "MARKET COMPARISON: The ChromaDB market database returned "
+                                        "no similar listings for this query. Politely tell the user "
+                                        "you couldn't find comparable properties in the database, "
+                                        "and suggest they provide more specific details (location, "
+                                        "size, features)."
+                                    )
+                                else:
+                                    # Format the similar listings for the LLM
+                                    # Format the similar listings for the LLM
+                                    best_listing = None
+
+                                    if similar:
+                                        def get_score(item):
+                                            if isinstance(item, dict):
+                                                return float(item.get("score") or item.get("similarity_score") or 0)
+                                            return 0
+
+
+                                        best_listing = max(similar, key=get_score)
+
+                                    lines = [
+                                        "MARKET COMPARISON FROM CHROMADB.",
+                                        "CRITICAL RULES:",
+                                        "1. Use ONLY the retrieved listings below.",
+                                        "2. Do NOT invent prices, sizes, scores, floors, amenities, or locations.",
+                                        "3. Do NOT change similarity scores.",
+                                        "4. If a field is missing, say 'not provided'.",
+                                        "5. First, clearly identify the BEST MATCH based on the highest similarity score.",
+                                        "6. Then compare the retrieved listings briefly.",
+                                        ""
+                                    ]
+
+                                    if best_listing and isinstance(best_listing, dict):
+                                        lines.append("BEST MATCH BY HIGHEST CHROMADB SCORE:")
+                                        lines.append(f"ID: {best_listing.get('id', 'not provided')}")
+                                        lines.append(f"Title: {best_listing.get('title', 'not provided')}")
+                                        lines.append(
+                                            f"Score: {best_listing.get('score') or best_listing.get('similarity_score') or 'not provided'}")
+                                        lines.append(
+                                            f"Summary: {best_listing.get('summary') or best_listing.get('description') or 'not provided'}")
+                                        lines.append("")
+
+                                    lines.append("RETRIEVED LISTINGS:")
+                                    for i, l in enumerate(similar[:5], 1):
+                                        if isinstance(l, dict):
+                                            title = l.get("title") or l.get("name") or f"Listing {i}"
+                                            summary = l.get("summary") or l.get("description", "")
+                                            score = l.get("score") or l.get("similarity_score") or 0
+                                            try:
+                                                pct = int(float(score) * 100)
+                                            except Exception:
+                                                pct = 0
+                                            lines.append(
+                                                f"""
+                                            [{i}]
+                                            ID: {l.get("id", "not provided") if isinstance(l, dict) else "not provided"}
+                                            Title: {title}
+                                            Raw similarity score: {score}
+                                            Match percentage: {pct}%
+                                            Summary: {summary[:500]}
+                                            """
+                                            )
+                                        else:
+                                            lines.append(f"\n[{i}] {l}")
+
+                                    if insight:
+                                        lines.append(f"\n\nMarket insight: {insight}")
+
+                                    rag_context = "\n".join(lines)
+
+                                # Stream from Groq with RAG context (no chat history to
+                                # avoid contamination, like we do for Pinecone)
+                                # For RAG, we want a longer, more detailed comparison response.
+                                # Override the default 2-3 line limit by prepending a system note.
+                                rag_system_override = (
+                                    "IMPORTANT: For this query, provide a DETAILED market comparison "
+                                    "(8-15 sentences). Quote specific facts from each similar listing. "
+                                    "Compare prices, sizes, locations, and features. The user needs a "
+                                    "thorough market analysis, NOT a brief 2-3 line summary."
+                                )
+
+                                full_rag_context = rag_system_override + "\n\n" + rag_context
+
+                                for content in chat_client.stream_response(
+                                        [{"role": "user", "content": prompt}],
+                                        listing_context=full_rag_context,
+                                ):
+                                    if content.startswith("\x00REPLACE\x00"):
+                                        full_response = content.replace("\x00REPLACE\x00", "")
+                                        placeholder.markdown(full_response)
+                                    else:
+                                        full_response += content
+                                        placeholder.markdown(full_response + "▌")
+                                placeholder.markdown(full_response)
+
+                            except ValueError as ve:
+                                full_response = f"⚠️ {str(ve)}"
+                                placeholder.markdown(full_response)
+                            except requests.exceptions.Timeout:
+                                full_response = "⚠️ RAG service timed out. EC2 services may be cold-starting — please try again in a moment."
+                                placeholder.markdown(full_response)
+                            except Exception as e:
+                                full_response = f"⚠️ RAG service unavailable: {str(e)}"
+                                placeholder.markdown(full_response)
+
                     else:
                         # Stream from Groq. If we have Pinecone results,
                         # we prepend them to the listing context so Groq
@@ -694,8 +839,8 @@ with tab_chat:
                                 full_ctx = pinecone_context
 
                         for content in chat_client.stream_response(
-                            groq_history,
-                            listing_context=full_ctx if full_ctx else None,
+                                groq_history,
+                                listing_context=full_ctx if full_ctx else None,
                         ):
                             if content.startswith("\x00REPLACE\x00"):
                                 full_response = content.replace("\x00REPLACE\x00", "")
@@ -707,16 +852,7 @@ with tab_chat:
                 except Exception as e:
                     full_response = f"Error: {e}"
                     placeholder.error(full_response)
-
-                # Update the badge to its final, shorter form
-                if decision == "perplexity":
-                    badge.caption("🌐 Answered via Perplexity Sonar")
-                elif decision == "pinecone":
-                    badge.caption("📦 Retrieved from vector store + answered by Groq")
-                else:
-                    badge.caption("💬 Answered by Groq Llama 3.1")
-
-        db.add_message(sid, "assistant", full_response)
+                db.add_message(sid, "assistant", full_response)
 
 
 # ============================================================
